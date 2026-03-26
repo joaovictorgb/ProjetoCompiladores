@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Analisador léxico / sintático</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      /* Tema escuro: fundo preto, texto claro, cinzas para bordas e hierarquia */
+      --black: #f4f4f5;
+      --white: #050505;
+      --gray-50: #0f0f0f;
+      --gray-100: #171717;
+      --gray-200: #2e2e2e;
+      --gray-400: #a1a1aa;
+      --gray-500: #8c8c91;
+      --gray-700: #d4d4d8;
+      --gray-900: #fafafa;
+      --font: "Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      --radius: 2px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--font);
+      font-size: 14px;
+      line-height: 1.5;
+      color: var(--black);
+      background: var(--white);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .wrap {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem 3rem;
+    }
+
+    /* Cabeçalho: alinhado à esquerda, sem centralização “landing” */
+    .head {
+      border-bottom: 1px solid var(--gray-200);
+      padding-bottom: 1.25rem;
+      margin-bottom: 1.75rem;
+    }
+    .head h1 {
+      margin: 0 0 0.35rem;
+      font-size: 1.125rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: var(--black);
+    }
+    .head .sub {
+      margin: 0;
+      font-size: 0.8125rem;
+      color: var(--gray-500);
+      font-weight: 400;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1px;
+      background: var(--gray-200);
+      border: 1px solid var(--gray-200);
+    }
+    @media (max-width: 900px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      background: var(--gray-50);
+      min-height: 200px;
+      display: flex;
+      flex-direction: column;
+    }
+    .panel-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.65rem 0.85rem;
+      border-bottom: 1px solid var(--gray-100);
+      background: var(--gray-50);
+    }
+    .panel-head h2 {
+      margin: 0;
+      font-size: 0.6875rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--gray-700);
+    }
+    .panel-body {
+      padding: 0.85rem;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .panel.wide {
+      grid-column: 1 / -1;
+    }
+
+    .editor-frame {
+      border: 1px solid var(--gray-200);
+      background: var(--gray-50);
+    }
+    .editor-scroll {
+      display: flex;
+      max-height: 400px;
+      overflow: auto;
+    }
+    .gutter {
+      flex: 0 0 2.5rem;
+      padding: 0.65rem 0.4rem;
+      text-align: right;
+      font-family: var(--font);
+      font-size: 0.75rem;
+      line-height: 1.6;
+      color: var(--gray-400);
+      user-select: none;
+      background: var(--gray-100);
+      border-right: 1px solid var(--gray-200);
+    }
+    .gutter span {
+      display: block;
+      min-height: 1.6em;
+    }
+    .gutter span.hot {
+      color: var(--black);
+      font-weight: 600;
+    }
+    .editor-layer {
+      position: relative;
+      flex: 1;
+      min-width: 0;
+    }
+    pre.code-back {
+      margin: 0;
+      padding: 0.65rem 0.65rem 0.65rem 0.5rem;
+      font-family: var(--font);
+      font-size: 0.75rem;
+      line-height: 1.6;
+      white-space: pre;
+      tab-size: 4;
+      color: var(--gray-900);
+      pointer-events: none;
+      min-height: 240px;
+      font-feature-settings: "liga" 0, "calt" 0;
+    }
+    pre.code-back .hl {
+      background: #3f3f46;
+      outline: 1px solid #71717a;
+    }
+    textarea#source {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100%;
+      margin: 0;
+      padding: 0.65rem 0.65rem 0.65rem 0.5rem;
+      font-family: var(--font);
+      font-size: 0.75rem;
+      line-height: 1.6;
+      tab-size: 4;
+      resize: none;
+      border: none;
+      outline: none;
+      color: transparent;
+      caret-color: var(--black);
+      background: transparent;
+      z-index: 1;
+      overflow: hidden;
+      font-feature-settings: "liga" 0, "calt" 0;
+    }
+    textarea#source::selection {
+      background: var(--gray-200);
+    }
+    textarea#source::placeholder {
+      color: var(--gray-500);
+      opacity: 1;
+    }
+
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+    }
+
+    button {
+      font-family: var(--font);
+      font-size: 0.8125rem;
+      font-weight: 500;
+      padding: 0.45rem 0.75rem;
+      border-radius: var(--radius);
+      border: 1px solid var(--black);
+      background: var(--white);
+      color: var(--black);
+      cursor: pointer;
+      transition: background 0.12s ease, color 0.12s ease;
+    }
+    button:hover:not(:disabled) {
+      background: var(--black);
+      color: var(--white);
+    }
+    button:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+    button.filled {
+      background: var(--black);
+      color: var(--white);
+    }
+    button.filled:hover:not(:disabled) {
+      background: #e4e4e7;
+      border-color: #e4e4e7;
+      color: #0a0a0a;
+    }
+    button.ghost {
+      border-color: var(--gray-200);
+      color: var(--gray-400);
+      background: transparent;
+    }
+    button.ghost:hover:not(:disabled) {
+      border-color: var(--gray-400);
+      color: var(--black);
+      background: var(--gray-100);
+    }
+
+    .hint {
+      font-size: 0.75rem;
+      color: var(--gray-500);
+      line-height: 1.45;
+      margin: 0;
+    }
+    .hint code {
+      font-family: var(--font);
+      font-size: 0.72rem;
+      background: var(--gray-100);
+      padding: 0.1rem 0.25rem;
+      border: 1px solid var(--gray-200);
+    }
+
+    .lex-meta {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.75rem;
+      color: var(--gray-500);
+      margin-bottom: 0.35rem;
+    }
+    .lex-bar {
+      height: 3px;
+      background: var(--gray-100);
+      border: 1px solid var(--gray-200);
+    }
+    .lex-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--black);
+      transition: width 0.2s ease;
+    }
+
+    .token-box {
+      border: 1px solid var(--gray-200);
+      padding: 0.75rem 0.85rem;
+      background: var(--gray-100);
+      min-height: 4.5rem;
+    }
+    .token-box .label {
+      font-size: 0.625rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--gray-400);
+      margin-bottom: 0.35rem;
+    }
+    .token-box .name {
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: var(--black);
+      margin-bottom: 0.25rem;
+    }
+    .token-box .meta {
+      font-family: var(--font);
+      font-size: 0.75rem;
+      color: var(--gray-500);
+    }
+    .token-box .meta code {
+      font-family: var(--font);
+      font-size: 0.72rem;
+      background: var(--gray-50);
+      padding: 0 0.2rem;
+      border: 1px solid var(--gray-200);
+      color: var(--gray-900);
+    }
+
+    .filmstrip {
+      display: flex;
+      gap: 0.25rem;
+      overflow-x: auto;
+      padding-bottom: 0.25rem;
+    }
+    .filmstrip[hidden] { display: none !important; }
+    .film-dot {
+      flex: 0 0 auto;
+      min-width: 26px;
+      height: 26px;
+      border: 1px solid var(--gray-200);
+      background: var(--gray-50);
+      font-family: var(--font);
+      font-size: 0.65rem;
+      font-weight: 500;
+      color: var(--gray-500);
+      cursor: pointer;
+      border-radius: var(--radius);
+    }
+    .film-dot:hover {
+      border-color: var(--gray-400);
+      color: var(--black);
+    }
+    .film-dot.active {
+      border-color: var(--black);
+      background: var(--black);
+      color: var(--white);
+    }
+
+    .table-wrap {
+      max-height: 220px;
+      overflow: auto;
+      border: 1px solid var(--gray-200);
+    }
+    table.tokens {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: var(--font);
+      font-size: 0.6875rem;
+    }
+    table.tokens th {
+      position: sticky;
+      top: 0;
+      padding: 0.4rem 0.5rem;
+      text-align: left;
+      font-weight: 600;
+      color: var(--gray-500);
+      background: var(--gray-50);
+      border-bottom: 1px solid var(--gray-200);
+      font-size: 0.625rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    table.tokens td {
+      padding: 0.35rem 0.5rem;
+      border-bottom: 1px solid var(--gray-100);
+      color: var(--gray-900);
+    }
+    table.tokens tr.active td {
+      background: var(--gray-50);
+      border-left: 2px solid var(--black);
+    }
+
+    .ctrl {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.75rem;
+      color: var(--gray-700);
+      border: 1px solid var(--gray-200);
+      padding: 0.25rem 0.45rem;
+      background: var(--gray-100);
+    }
+    .ctrl input[type="range"] {
+      width: 88px;
+      accent-color: #fafafa;
+    }
+
+    .syntax-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.75rem;
+    }
+    @media (max-width: 720px) {
+      .syntax-grid { grid-template-columns: 1fr; }
+    }
+    .st {
+      border: 1px solid var(--gray-200);
+      padding: 0.65rem 0.65rem 0.65rem 2.5rem;
+      position: relative;
+      background: var(--gray-50);
+      opacity: 0.45;
+      transition: opacity 0.2s ease, border-color 0.2s ease;
+    }
+    .st .num {
+      position: absolute;
+      left: 0.65rem;
+      top: 0.65rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--gray-400);
+      width: 1.25rem;
+    }
+    .st p {
+      margin: 0;
+      font-size: 0.8125rem;
+      line-height: 1.45;
+      color: var(--gray-700);
+    }
+    .st p code {
+      font-family: var(--font);
+      font-size: 0.78rem;
+      color: var(--black);
+      font-weight: 500;
+    }
+    .st.current {
+      opacity: 1;
+      border-color: var(--black);
+    }
+    .st.current .num { color: var(--black); }
+    .st.done {
+      opacity: 1;
+      border-color: var(--gray-200);
+    }
+    .st.done .num {
+      font-size: 0;
+      color: transparent;
+    }
+    .st.done .num::after {
+      content: "✓";
+      font-size: 0.8rem;
+      color: var(--black);
+      display: block;
+      line-height: 1;
+    }
+
+    .syntax-result {
+      display: none;
+      margin-top: 0.75rem;
+      padding: 0.75rem 0.85rem;
+      font-size: 0.8125rem;
+      line-height: 1.5;
+      border: 1px solid var(--gray-200);
+      font-family: var(--font);
+    }
+    .syntax-result.ok {
+      border-left: 3px solid var(--black);
+      background: var(--gray-50);
+      color: var(--gray-900);
+    }
+    .syntax-result.err {
+      border-left: 3px solid var(--gray-700);
+      background: var(--gray-50);
+      color: var(--gray-900);
+      font-size: 0.72rem;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .lex-bar-fill { transition: none; }
+      .st { transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="head">
+      <h1>Analisador léxico e sintático</h1>
+      <p class="sub">JavaCC · subconjunto da linguagem Go · interface local</p>
+    </header>
+
+    <div class="grid">
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Entrada</h2>
+          <button type="button" class="ghost" id="btnSample">Exemplo</button>
+        </div>
+        <div class="panel-body">
+          <div class="editor-frame">
+            <div class="editor-scroll" id="editorScroll">
+              <div class="gutter" id="lineGutter"></div>
+              <div class="editor-layer" id="editorLayer">
+                <pre class="code-back" id="codeBack" aria-hidden="true"></pre>
+                <textarea id="source" spellcheck="false" autocomplete="off" autocorrect="off" placeholder="// código fonte"></textarea>
+              </div>
+            </div>
+          </div>
+          <div class="row">
+            <button type="button" class="filled" id="btnAnalyze">Analisar</button>
+          </div>
+          <p class="hint">Servidor na pasta do projeto: pastas <code>web</code> e arquivo <code>teste.go</code> no diretório atual. O realce cinza indica o token ativo após a análise.</p>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Léxico</h2>
+        </div>
+        <div class="panel-body">
+          <div>
+            <div class="lex-meta">
+              <span>Progresso</span>
+              <span id="lexProgress">—</span>
+            </div>
+            <div class="lex-bar" aria-hidden="true"><div class="lex-bar-fill" id="lexBarFill"></div></div>
+          </div>
+
+          <div class="filmstrip" id="filmstrip" hidden></div>
+
+          <div class="token-box" id="tokenHero">
+            <div class="label">Token atual</div>
+            <div class="name" id="heroName">—</div>
+            <div class="meta" id="heroMeta">Execute a análise para listar tokens.</div>
+          </div>
+
+          <div class="row">
+            <button type="button" id="btnPrev" disabled>Anterior</button>
+            <button type="button" class="filled" id="btnNext" disabled>Próximo</button>
+            <button type="button" id="btnFirst" disabled>Início</button>
+            <label class="ctrl">
+              <input type="checkbox" id="chkAuto" />
+              <span>Automático</span>
+            </label>
+            <label class="ctrl">
+              <span>Intervalo</span>
+              <input type="range" id="rngSpeed" min="80" max="920" value="380" />
+            </label>
+          </div>
+
+          <div class="table-wrap">
+            <table class="tokens">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Tipo</th>
+                  <th>Lexema</th>
+                  <th>Ln</th>
+                  <th>Col</th>
+                </tr>
+              </thead>
+              <tbody id="tokenRows"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel wide">
+        <div class="panel-head">
+          <h2>Sintático</h2>
+          <button type="button" class="filled" id="btnSyntaxSteps" disabled>Etapas</button>
+        </div>
+        <div class="panel-body">
+          <div class="syntax-grid">
+            <div class="st" id="st1">
+              <span class="num">1</span>
+              <p>Os tokens são lidos em sequência pelo analisador sintático (descida recursiva).</p>
+            </div>
+            <div class="st" id="st2">
+              <span class="num">2</span>
+              <p>A regra <code>Inicio</code> cobre cabeçalho opcional, <code>import</code>, comandos e <code>EOF</code>.</p>
+            </div>
+            <div class="st" id="st3">
+              <span class="num">3</span>
+              <p>As produções consomem a entrada até o fim ou até erro de parsing.</p>
+            </div>
+          </div>
+          <div class="syntax-result" id="syntaxBox"></div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let tokens = [];
+    let lexIndex = 0;
+    let autoTimer = null;
+    let analyzedSource = "";
+
+    function escapeHtml(s) {
+      return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    function shortLexeme(lex) {
+      if (lex.length > 40) return escapeHtml(lex.slice(0, 37)) + "…";
+      return escapeHtml(lex);
+    }
+
+    function lineColToOffset(text, line, col) {
+      const lines = text.split(/\n/);
+      if (line < 1) return 0;
+      let off = 0;
+      for (let i = 0; i < line - 1 && i < lines.length; i++) {
+        off += lines[i].length + 1;
+      }
+      const cur = lines[line - 1] || "";
+      const c = Math.max(0, Math.min(col - 1, cur.length));
+      return off + c;
+    }
+
+    function renderGutterAndBack() {
+      const src = $("source").value;
+      const lines = src.split(/\n/);
+      const n = Math.max(lines.length, 1);
+      const g = $("lineGutter");
+      g.innerHTML = "";
+      for (let i = 0; i < n; i++) {
+        const s = document.createElement("span");
+        s.textContent = String(i + 1);
+        s.dataset.line = String(i + 1);
+        g.appendChild(s);
+      }
+      syncHighlight();
+    }
+
+    function syncHighlight() {
+      const src = $("source").value;
+      let html = escapeHtml(src);
+      const useAnalyzed = analyzedSource.length > 0 && src === analyzedSource;
+      if (useAnalyzed && tokens.length > 0 && lexIndex >= 0 && lexIndex < tokens.length) {
+        const t = tokens[lexIndex];
+        const start = lineColToOffset(analyzedSource, t.line, t.column);
+        const len = Math.max(0, t.lexeme.length);
+        const a = escapeHtml(analyzedSource.slice(0, start));
+        const mid = escapeHtml(analyzedSource.slice(start, start + len));
+        const b = escapeHtml(analyzedSource.slice(start + len));
+        html = a + '<span class="hl">' + mid + "</span>" + b;
+      }
+      $("codeBack").innerHTML = html;
+      highlightGutterLine();
+      sizeEditorLayers();
+    }
+
+    function sizeEditorLayers() {
+      const pre = $("codeBack");
+      const ta = $("source");
+      const layer = $("editorLayer");
+      requestAnimationFrame(() => {
+        const h = Math.max(240, pre.scrollHeight);
+        if (layer) layer.style.minHeight = h + "px";
+        ta.style.height = h + "px";
+        pre.style.minHeight = h + "px";
+      });
+    }
+
+    function highlightGutterLine() {
+      const spans = $("lineGutter").querySelectorAll("span");
+      spans.forEach((s) => s.classList.remove("hot"));
+      if (!analyzedSource || !tokens.length || lexIndex < 0 || lexIndex >= tokens.length) return;
+      const line = tokens[lexIndex].line;
+      const el = $("lineGutter").querySelector(`span[data-line="${line}"]`);
+      if (el) el.classList.add("hot");
+    }
+
+    function renderFilmstrip() {
+      const fs = $("filmstrip");
+      fs.innerHTML = "";
+      if (tokens.length === 0) {
+        fs.hidden = true;
+        return;
+      }
+      fs.hidden = tokens.length > 48;
+      if (fs.hidden) return;
+      tokens.forEach((_, i) => {
+        const d = document.createElement("button");
+        d.type = "button";
+        d.className = "film-dot" + (i === lexIndex ? " active" : "");
+        d.textContent = String(i + 1);
+        d.title = "Token " + (i + 1);
+        d.addEventListener("click", () => {
+          clearAuto();
+          $("chkAuto").checked = false;
+          lexIndex = i;
+          updateLexUi(false);
+        });
+        fs.appendChild(d);
+      });
+    }
+
+    function renderTokenTable() {
+      const tbody = $("tokenRows");
+      tbody.innerHTML = "";
+      tokens.forEach((t, i) => {
+        const tr = document.createElement("tr");
+        if (i === lexIndex) tr.classList.add("active");
+        tr.innerHTML = `<td>${i + 1}</td><td>${escapeHtml(t.kindName)}</td><td>${shortLexeme(t.lexeme)}</td><td>${t.line}</td><td>${t.column}</td>`;
+        tbody.appendChild(tr);
+      });
+      const row = tbody.children[lexIndex];
+      if (row) row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+
+    function updateLexUi() {
+      const n = tokens.length;
+      const pct = n > 0 ? ((lexIndex + 1) / n) * 100 : 0;
+      $("lexBarFill").style.width = pct + "%";
+      $("lexProgress").textContent = n ? `${lexIndex + 1} / ${n}` : "—";
+
+      $("btnPrev").disabled = n === 0 || lexIndex <= 0;
+      $("btnNext").disabled = n === 0 || lexIndex >= n - 1;
+      $("btnFirst").disabled = n === 0;
+
+      const hero = $("tokenHero");
+
+      if (n === 0) {
+        $("heroName").textContent = "—";
+        $("heroMeta").innerHTML = "Nenhum token.";
+        renderTokenTable();
+        renderFilmstrip();
+        syncHighlight();
+        return;
+      }
+
+      const t = tokens[lexIndex];
+      $("heroName").textContent = t.kindName;
+      $("heroMeta").innerHTML =
+        `Lexema <code>${shortLexeme(t.lexeme)}</code> · linha ${t.line}, coluna ${t.column} · kind ${t.kind}`;
+
+      renderTokenTable();
+      renderFilmstrip();
+      syncHighlight();
+
+      const lineEl = $("lineGutter").querySelector(`span[data-line="${t.line}"]`);
+      if (lineEl) lineEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+
+    function clearAuto() {
+      if (autoTimer) {
+        clearInterval(autoTimer);
+        autoTimer = null;
+      }
+    }
+
+    function scheduleAuto() {
+      clearAuto();
+      if (!$("chkAuto").checked || tokens.length === 0) return;
+      const ms = Math.max(120, 1050 - parseInt($("rngSpeed").value, 10));
+      autoTimer = setInterval(() => {
+        if (lexIndex >= tokens.length - 1) {
+          clearAuto();
+          $("chkAuto").checked = false;
+          return;
+        }
+        lexIndex++;
+        updateLexUi();
+      }, ms);
+    }
+
+    $("source").addEventListener("input", () => {
+      analyzedSource = "";
+      renderGutterAndBack();
+    });
+
+    $("btnPrev").addEventListener("click", () => {
+      clearAuto();
+      $("chkAuto").checked = false;
+      if (lexIndex > 0) {
+        lexIndex--;
+        updateLexUi();
+      }
+    });
+    $("btnNext").addEventListener("click", () => {
+      clearAuto();
+      $("chkAuto").checked = false;
+      if (lexIndex < tokens.length - 1) {
+        lexIndex++;
+        updateLexUi();
+      }
+    });
+    $("btnFirst").addEventListener("click", () => {
+      clearAuto();
+      $("chkAuto").checked = false;
+      lexIndex = 0;
+      updateLexUi();
+    });
+
+    $("chkAuto").addEventListener("change", () => {
+      if ($("chkAuto").checked) scheduleAuto();
+      else clearAuto();
+    });
+    $("rngSpeed").addEventListener("input", () => {
+      if ($("chkAuto").checked) scheduleAuto();
+    });
+
+    function resetSyntaxSteps() {
+      ["st1", "st2", "st3"].forEach((id) => {
+        $(id).classList.remove("done", "current");
+      });
+      const box = $("syntaxBox");
+      box.style.display = "none";
+      box.className = "syntax-result";
+      box.textContent = "";
+    }
+
+    function playSyntaxSteps(syntax) {
+      resetSyntaxSteps();
+      const cards = [$("st1"), $("st2"), $("st3")];
+      let i = 0;
+      const delay = syntax.ok ? 550 : 400;
+
+      function step() {
+        cards.forEach((c) => c.classList.remove("current"));
+        if (i > 0) cards[i - 1].classList.add("done");
+        if (i < cards.length) {
+          cards[i].classList.add("current");
+          i++;
+          setTimeout(step, delay);
+        } else {
+          const box = $("syntaxBox");
+          box.style.display = "block";
+          if (syntax.ok) {
+            box.classList.add("ok");
+            box.textContent = syntax.message || "Aceito pela gramática.";
+          } else {
+            box.classList.add("err");
+            box.textContent = syntax.message || "Erro sintático.";
+          }
+        }
+      }
+      step();
+    }
+
+    $("btnSyntaxSteps").addEventListener("click", () => {
+      if (!window._lastSyntax) return;
+      playSyntaxSteps(window._lastSyntax);
+    });
+
+    async function loadSample() {
+      try {
+        const r = await fetch("/api/sample");
+        const data = await r.json();
+        $("source").value = data.source || "";
+        analyzedSource = "";
+        renderGutterAndBack();
+      } catch (e) {
+        $("source").value = "// não foi possível carregar o exemplo\n";
+        renderGutterAndBack();
+      }
+    }
+
+    $("btnSample").addEventListener("click", loadSample);
+
+    $("btnAnalyze").addEventListener("click", async () => {
+      clearAuto();
+      $("chkAuto").checked = false;
+      const source = $("source").value;
+      $("btnAnalyze").disabled = true;
+      $("btnAnalyze").textContent = "Analisando…";
+      try {
+        const r = await fetch("/api/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json; charset=utf-8" },
+          body: JSON.stringify({ source }),
+        });
+        const data = await r.json();
+        tokens = data.tokens || [];
+        lexIndex = 0;
+        analyzedSource = source;
+        renderGutterAndBack();
+        updateLexUi();
+        window._lastSyntax = data.syntax || { ok: false, message: "" };
+        $("btnSyntaxSteps").disabled = false;
+        resetSyntaxSteps();
+        $("syntaxBox").style.display = "none";
+      } catch (e) {
+        tokens = [];
+        lexIndex = 0;
+        analyzedSource = "";
+        updateLexUi();
+        alert("Não foi possível conectar ao servidor.");
+      }
+      $("btnAnalyze").disabled = false;
+      $("btnAnalyze").textContent = "Analisar";
+    });
+
+    loadSample().then(() => renderGutterAndBack());
+  </script>
+</body>
+</html>

@@ -1,0 +1,267 @@
+PARSER_BEGIN(GoGramatica)
+
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+
+public class GoGramatica {
+    public static void main(String[] args) throws ParseException {
+        if (args.length > 0) {
+            try {
+                FileInputStream fis = new FileInputStream(args[0]);
+                GoGramatica parser = new GoGramatica(fis);
+                parser.Inicio(); 
+                System.out.println("Sintaxe válida.");
+            } catch (FileNotFoundException e) {
+                System.out.println("Arquivo não encontrado: " + args[0]);
+            }
+        } else {
+            System.out.println("Por favor, especifique um arquivo de entrada.");
+        }
+    }
+}
+
+PARSER_END(GoGramatica)
+
+SKIP : {
+    " " | "\t" | "\n" | "\r"
+}
+
+// definição dos tokens para operadores aritméticos, relacionais, lógicos e especiais do Go.
+TOKEN : {
+    <SOMA: "+"> | <SUBTRACAO: "-"> | <MULTIPLICACAO: "*"> | <DIVISAO: "/">
+    | <IGUAL: "="> | <COMPARACAO: "=="> | <DIFERENTE: "!=">
+    | <MAIOR: ">"> | <MENOR: "<"> | <MAIORIGUAL: ">="> | <MENORIGUAL: "<=">
+    | <AND: "&&"> | <OR: "||"> | <NOT: "!">
+    | <ANDPER: "&"> // Usado para referências de endereço, como em fmt.Scanln(&x)
+    | <DOISPONTOS: ":"> // Usado em atribuições curtas (:=) ou declarações de for range
+}
+
+// definição dos tokens para palavras-chave da linguagem 
+TOKEN : {
+    <PACKAGE: "package">
+    | <IMPORT: "import">
+    | <FUNC: "func">
+    | <VAR: "var">
+    | <IF: "if"> | <ELSE: "else">
+    | <FOR: "for">
+    | <RANGE: "range">
+    | <TRUE: "true"> | <FALSE: "false">
+    | <RETURN: "return">
+    | <PRINT: "fmt.Println"> 
+    | <ENTRADA: "fmt.Scanln"> 
+}
+
+// definição dos tokens para tipos de dados, literais e identificadores.
+TOKEN : {
+      <TIPO: ("int" | "string" | "bool" | "float64") > 
+    | <INTEIRO: (["0"-"9"])+ > 
+    | <REAL: (["0"-"9"])+ ("." (["0"-"9"])+)? > 
+    | <STRING: "\"" (~["\""])* "\"" > 
+    | <IDENTIFICADOR: (["a"-"z","A"-"Z"]) (["a"-"z","A"-"Z","0"-"9","_"])* > 
+}
+
+// regra inicial da gramática.
+// define a estrutura de um arquivo Go: um header opcional, múltiplos imports e comandos.
+void Inicio():
+{}
+{
+    (Header())? 
+    (Import())* 
+    (Comando())*
+    <EOF> 
+}
+
+// define a estrutura da declaração de pacote.
+// Ex: "package main"
+void Header():
+{}
+{
+    <PACKAGE> <IDENTIFICADOR>
+}
+
+// define a estrutura de uma declaração de import.
+// Ex: "import "fmt""
+void Import():
+{}
+{
+    <IMPORT> <STRING>
+}
+
+// define os diferentes tipos de comandos que podem aparecer no corpo principal ou funções
+void Comando():
+{}
+{
+    <VAR> <IDENTIFICADOR> <TIPO> DeclaracaoVariavel() 
+    | <FUNC> <IDENTIFICADOR> criarFuncao() 
+    | <IDENTIFICADOR> ( Atribuicao() | chamarFuncao() ) 
+    | Condicional() 
+    | LoopFor() 
+    | Saida()
+    | Entrada() 
+}
+
+// define as diferentes formas de atribuição de valor a uma variável.
+// atribuição simples (=) ou uma declaração curta (:=).
+void Atribuicao():
+{}
+{
+   ( <DOISPONTOS> <IGUAL> 
+     | <IGUAL> )
+   Expressao() 
+}
+
+// define a parte opcional de inicialização em uma declaração de variável.
+// Ex: var x int = 10 
+void DeclaracaoVariavel():
+{}
+{
+    ( <IGUAL> Expressao() )? 
+}
+
+// define a estrutura para criar uma nova função.
+// inclui parâmetros, tipo de retorno e o corpo da função.
+void criarFuncao():
+{}
+{
+    "(" ( (<IDENTIFICADOR> <TIPO>) ("," <IDENTIFICADOR> <TIPO>)* )? ")" // Lista de parâmetros (nome e tipo), opcional
+    ( <TIPO> )? 
+    "{" 
+        (Comando())*
+        ( <RETURN> Expressao() )? 
+    "}" 
+}
+
+// define a estrutura para chamar uma função.
+// consiste no nome da função seguido por uma lista de argumentos entre parênteses.
+void chamarFuncao():
+{}
+{
+    "(" (Expressao() ("," Expressao())* )? ")" 
+}
+
+// define a estrutura de uma instrução condicional 'if'.
+void Condicional():
+{}
+{
+    <IF> "(" Expressao() ")" 
+    "{" (Comando())* "}"
+    ( ElsePart() )? 
+}
+
+// define a parte 'else' ou 'else if' de uma instrução condicional.
+// Pode ser um 'else if' (recursivo chamando Condicional) ou um 'else' simples.
+void ElsePart():
+{}
+{
+    <ELSE> 
+    (
+        // 'else if' (chama Condicional novamente para processar o 'if' aninhado)
+        Condicional()
+        |
+        // 'else' simples com um bloco de comandos
+        "{" (Comando())* "}"
+    )
+}
+
+// define a estrutura dos laços 'for' em Go
+void LoopFor():
+{}
+{
+    <FOR>
+    (
+        // Este LOOKAHEAD é crucial para diferenciar entre os tipos de 'for' que começam com '('.
+        // Ele garante que o parser olhe tokens suficientes para decidir se é um 'for' clássico.
+        LOOKAHEAD(2)
+        "(" (Expressao())? ";" (Expressao())? ";" (Expressao())? ")" // For tradicional (inicialização; condição; pós-declaração)
+        "{" (Comando())* "}" // Bloco de comandos do laço
+        |
+        // Este LOOKAHEAD diferencia o 'for range' dos outros 'for' que podem começar com um identificador.
+        // Ele verifica se há um ':' após um identificador (ou '_') inicial, que é um padrão do 'for range'.
+        LOOKAHEAD( ( <IDENTIFICADOR> | "_" ) ("," ( <IDENTIFICADOR> | "_" ))? <DOISPONTOS> )
+        ForRange() // Laço 'for range'
+        |
+        // Este é o 'for' simples que age como um 'while' ou um 'for' com apenas uma condição/inicialização curta.
+        // Ex: "for resultado > 2 {" ou "for { ... }" (loop infinito)
+        Expressao() "{" (Comando())* "}" // Laço 'for' baseado em expressão
+    )
+}
+
+// define a estrutura de um laço 'for range'.
+void ForRange():
+{}
+{
+    ( <IDENTIFICADOR> | "_" ) // Variável ou descarte para o primeiro valor (índice ou chave)
+    ("," ( <IDENTIFICADOR> | "_" ))? // Opcionalmente, uma segunda variável ou descarte para o segundo valor (elemento ou valor)
+    <DOISPONTOS> <IGUAL> // O operador := para declaração e atribuição
+    <RANGE> <IDENTIFICADOR> // A palavra-chave 'range' seguida pelo identificador da coleção
+    "{" (Comando())* "}" // Bloco de comandos do laço
+}
+
+// define a estrutura de uma chamada de função de saída (ex: fmt.Println).
+void Saida():
+{}
+{
+    <PRINT> "(" (<STRING> | <IDENTIFICADOR>) ")" // Pode imprimir uma string literal ou o valor de um identificador
+}
+
+// define a estrutura de uma chamada de função de entrada (ex: fmt.Scanln).
+void Entrada():
+{}
+{
+    <ENTRADA> "(" ( <ANDPER> <IDENTIFICADOR> ) ")" // Exige o operador '&' para passar o endereço da variável
+}
+
+// regra para definir uma expressão geral.
+// uma expressão pode ser aritmética, booleana, lógica
+void Expressao():
+{}
+{
+    ExpressaoAritmetica() (ExpressaoBooleana())? (ExpressaoLogica())? // Combinação de diferentes tipos de expressão
+    | <TRUE> // Literal booleano 'true'
+    | <FALSE> // Literal booleano 'false'
+}
+
+// define uma expressão booleana, que envolve operadores relacionais.
+void ExpressaoBooleana():
+{}
+{
+    ( <COMPARACAO> | <DIFERENTE> | <MENOR> | <MAIOR> | <MENORIGUAL> | <MAIORIGUAL> ) ExpressaoAritmetica()
+}
+
+// define uma expressão lógica, que envolve operadores lógicos 
+void ExpressaoLogica():
+{}
+{
+    ( <AND> | <OR> ) ExpressaoAritmetica()
+}
+
+// define uma expressão aritmética, com operações de soma e subtração.
+void ExpressaoAritmetica():
+{}
+{
+    Termo() ( ( <SOMA> | <SUBTRACAO> ) Termo() )* // Permite múltiplos termos somados ou subtraídos
+}
+
+// define um termo em uma expressão aritmética, com operações de multiplicação e divisão.
+void Termo():
+{}
+{
+    Fator() ( ( <MULTIPLICACAO> | <DIVISAO> ) Fator() )* // Permite múltiplos fatores multiplicados ou divididos
+}
+
+// define um fator em uma expressão aritmética, que são os elementos mais básicos.
+void Fator():
+{}
+{
+    ( <SOMA> | <SUBTRACAO> )? Numero() // Números podem ter um sinal unário (+/-)
+    | <IDENTIFICADOR> // Variáveis
+    | <STRING> // Literais de string
+    | "(" Expressao() ")" // Sub-expressões para forçar precedência
+}
+
+// define um literal numérico, que pode ser um inteiro ou um real.
+void Numero():
+{}
+{
+    <INTEIRO> | <REAL>
+}
